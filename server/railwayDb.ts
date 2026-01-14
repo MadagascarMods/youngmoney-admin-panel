@@ -221,12 +221,12 @@ export async function getRailwayReferrals(limit = 100) {
 
 // ============= RANKING =============
 
-export async function getRailwayRanking(limit = 100) {
+export async function getRailwayRanking(limit = 10000) {
   try {
     const rows = await executeRawQuery(
-      `SELECT id, name, email, points, balance, photo_url, profile_picture 
+      `SELECT id, name, email, points, daily_points, balance, photo_url, profile_picture 
        FROM users 
-       ORDER BY points DESC 
+       ORDER BY daily_points DESC 
        LIMIT ?`,
       [limit]
     );
@@ -234,6 +234,26 @@ export async function getRailwayRanking(limit = 100) {
   } catch (error) {
     console.warn("[Railway DB] Error fetching ranking:", error);
     return [];
+  }
+}
+
+// ============= ATUALIZAR PONTOS DIÁRIOS =============
+
+export async function updateDailyPoints(userId: number, points: number, operation: 'add' | 'subtract' | 'set') {
+  try {
+    let query = '';
+    if (operation === 'add') {
+      query = `UPDATE users SET daily_points = daily_points + ?, updated_at = NOW() WHERE id = ?`;
+    } else if (operation === 'subtract') {
+      query = `UPDATE users SET daily_points = daily_points - ?, updated_at = NOW() WHERE id = ?`;
+    } else {
+      query = `UPDATE users SET daily_points = ?, updated_at = NOW() WHERE id = ?`;
+    }
+    await executeRawQuery(query, [points, userId]);
+    return true;
+  } catch (error) {
+    console.error("[Railway DB] Error updating daily points:", error);
+    return false;
   }
 }
 
@@ -358,9 +378,12 @@ export async function getSystemSettings() {
 
 export async function updateSystemSetting(key: string, value: string) {
   try {
+    // Usar INSERT ON DUPLICATE KEY UPDATE para criar se não existir
     await executeRawQuery(
-      `UPDATE system_settings SET setting_value = ?, updated_at = NOW() WHERE setting_key = ?`,
-      [value, key]
+      `INSERT INTO system_settings (setting_key, setting_value, created_at, updated_at) 
+       VALUES (?, ?, NOW(), NOW()) 
+       ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = NOW()`,
+      [key, value]
     );
     return true;
   } catch (error) {
@@ -817,5 +840,24 @@ export async function deleteAllUsers() {
   } catch (error) {
     console.error("[Railway DB] Error deleting all users:", error);
     return { success: false, count: 0 };
+  }
+}
+
+
+// ============= HISTÓRICO DE PONTOS DO USUÁRIO =============
+
+export async function getUserPointsHistory(userId: number, limit = 100) {
+  try {
+    const rows = await executeRawQuery(
+      `SELECT * FROM points_history 
+       WHERE user_id = ? 
+       ORDER BY created_at DESC 
+       LIMIT ?`,
+      [userId, limit]
+    );
+    return rows;
+  } catch (error) {
+    console.warn("[Railway DB] Error fetching user points history:", error);
+    return [];
   }
 }

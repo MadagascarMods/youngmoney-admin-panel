@@ -111,6 +111,16 @@ export const appRouter = router({
         const transactions = await railwayDb.getPointTransactions(input.limit);
         return transactions;
       }),
+
+    userHistory: adminProcedure
+      .input(z.object({
+        userId: z.number(),
+        limit: z.number().optional().default(100),
+      }))
+      .query(async ({ input }) => {
+        const history = await railwayDb.getUserPointsHistory(input.userId, input.limit);
+        return history;
+      }),
   }),
 
   // ============= WITHDRAWALS =============
@@ -180,11 +190,23 @@ export const appRouter = router({
   ranking: router({
     list: adminProcedure
       .input(z.object({
-        limit: z.number().optional().default(100),
+        limit: z.number().optional().default(10000),
       }))
       .query(async ({ input }) => {
         const ranking = await railwayDb.getRailwayRanking(input.limit);
         return ranking;
+      }),
+
+    updateDailyPoints: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        points: z.number(),
+        operation: z.enum(['add', 'subtract', 'set']).optional().default('set'),
+      }))
+      .mutation(async ({ input }) => {
+        await railwayDb.updateDailyPoints(input.id, input.points, input.operation);
+        await railwayDb.createAdminLog('UPDATE_DAILY_POINTS', `Pontos diários do usuário ${input.id} atualizados: ${input.operation} ${input.points}`);
+        return { success: true };
       }),
   }),
 

@@ -20,6 +20,7 @@ import Security from "./pages/Security";
 import Database from "./pages/Database";
 import Monetag from "./pages/Monetag";
 import AllowedInstallers from "./pages/AllowedInstallers";
+import AppUpdate from "./pages/AppUpdate";
 
 function Router() {
   return (
@@ -63,6 +64,12 @@ function Router() {
       <Route path={"/system-settings"}>
         <DashboardLayout>
           <SystemSettings />
+        </DashboardLayout>
+      </Route>
+      
+      <Route path={"/app-update"}>
+        <DashboardLayout>
+          <AppUpdate />
         </DashboardLayout>
       </Route>
       

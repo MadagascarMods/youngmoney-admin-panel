@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Eye, Search, Loader2, Users as UsersIcon, Coins, Wallet, Trash2, AlertTriangle } from "lucide-react";
+import { Eye, Search, Loader2, Users as UsersIcon, Coins, Wallet, Trash2, AlertTriangle, Mail, AtSign } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -21,7 +21,8 @@ export default function Users() {
   const [newPoints, setNewPoints] = useState("");
   const [newBalance, setNewBalance] = useState("");
 
-  const { data, isLoading, refetch } = trpc.appUsers.list.useQuery({ limit: 100, offset: 0 });
+  // Buscar TODOS os usuários (limite alto para pegar todos)
+  const { data, isLoading, refetch } = trpc.appUsers.list.useQuery({ limit: 10000, offset: 0 });
 
   const updatePointsMutation = trpc.appUsers.updatePoints.useMutation({
     onSuccess: () => {
@@ -75,12 +76,21 @@ export default function Users() {
     deleteAllMutation.mutate({ confirmText: deleteConfirmText });
   };
 
-  const filteredUsers = data?.users?.filter((user: any) =>
-    user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    String(user.id).includes(searchTerm)
-  ) || [];
+  // Filtro melhorado - busca por email e username (case insensitive)
+  const filteredUsers = data?.users?.filter((user: any) => {
+    if (!searchTerm.trim()) return true;
+    
+    const search = searchTerm.toLowerCase().trim();
+    const email = (user.email || "").toLowerCase();
+    const username = (user.username || "").toLowerCase();
+    const name = (user.name || "").toLowerCase();
+    const id = String(user.id);
+    
+    return email.includes(search) || 
+           username.includes(search) || 
+           name.includes(search) || 
+           id.includes(search);
+  }) || [];
 
   const formatCurrency = (value: number | string) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -161,18 +171,35 @@ export default function Users() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Usuarios</CardTitle>
-              <CardDescription>Lista de todos os usuarios cadastrados</CardDescription>
+              <CardDescription>
+                Lista de todos os usuarios cadastrados 
+                {searchTerm && ` - Mostrando ${filteredUsers.length} de ${data?.users?.length || 0}`}
+              </CardDescription>
             </div>
-            <div className="relative w-64">
+            <div className="relative w-80">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar usuario..."
+                placeholder="Buscar por email, username ou nome..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-8"
               />
             </div>
           </div>
+          {searchTerm && (
+            <div className="flex items-center gap-2 mt-2 text-sm text-muted-foreground">
+              <Mail className="w-4 h-4" />
+              <span>Buscando por: <strong className="text-foreground">{searchTerm}</strong></span>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => setSearchTerm("")}
+                className="h-6 px-2"
+              >
+                Limpar
+              </Button>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -181,80 +208,116 @@ export default function Users() {
             </div>
           ) : filteredUsers.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              Nenhum usuario encontrado
+              {searchTerm ? (
+                <div className="space-y-2">
+                  <p>Nenhum usuario encontrado com "{searchTerm}"</p>
+                  <p className="text-sm">Tente buscar por email completo ou parte do username</p>
+                </div>
+              ) : (
+                "Nenhum usuario encontrado"
+              )}
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Pontos</TableHead>
-                  <TableHead>Saldo</TableHead>
-                  <TableHead>Codigo Convite</TableHead>
-                  <TableHead>Acoes</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredUsers.map((user: any) => (
-                  <TableRow key={user.id}>
-                    <TableCell className="font-mono">#{user.id}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {user.photo_url || user.profile_picture ? (
-                          <img
-                            src={user.photo_url || user.profile_picture}
-                            alt={user.name}
-                            className="w-8 h-8 rounded-full"
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-                            <UsersIcon className="w-4 h-4" />
-                          </div>
-                        )}
-                        <div>
-                          <div className="font-medium">{user.name || "N/A"}</div>
-                          {user.username && (
-                            <div className="text-sm text-muted-foreground">@{user.username}</div>
-                          )}
-                        </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Nome</TableHead>
+                    <TableHead>
+                      <div className="flex items-center gap-1">
+                        <Mail className="w-4 h-4" />
+                        Email
                       </div>
-                    </TableCell>
-                    <TableCell>{user.email || "N/A"}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
-                        <Coins className="w-3 h-3 mr-1" />
-                        {formatNumber(user.points)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="bg-green-50 text-green-700">
-                        {formatCurrency(user.balance)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">{user.invite_code || "N/A"}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setSelectedUser(user);
-                            setNewPoints(String(user.points || 0));
-                            setNewBalance(String(user.balance || 0));
-                            setShowEditDialog(true);
-                          }}
-                        >
-                          <Eye className="w-4 h-4 mr-1" />
-                          Editar
-                        </Button>
+                    </TableHead>
+                    <TableHead>
+                      <div className="flex items-center gap-1">
+                        <AtSign className="w-4 h-4" />
+                        Username
                       </div>
-                    </TableCell>
+                    </TableHead>
+                    <TableHead>Pontos</TableHead>
+                    <TableHead>Saldo</TableHead>
+                    <TableHead>Codigo Convite</TableHead>
+                    <TableHead>Acoes</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredUsers.map((user: any) => (
+                    <TableRow key={user.id} className="hover:bg-muted/50">
+                      <TableCell className="font-mono">#{user.id}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {user.photo_url || user.profile_picture ? (
+                            <img
+                              src={user.photo_url || user.profile_picture}
+                              alt={user.name}
+                              className="w-8 h-8 rounded-full"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                              <UsersIcon className="w-4 h-4" />
+                            </div>
+                          )}
+                          <div className="font-medium">{user.name || "N/A"}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className={searchTerm && user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ? "bg-yellow-100 px-1 rounded" : ""}>
+                          {user.email || "N/A"}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className={searchTerm && user.username?.toLowerCase().includes(searchTerm.toLowerCase()) ? "bg-yellow-100 px-1 rounded" : ""}>
+                          {user.username ? `@${user.username}` : "N/A"}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
+                          <Coins className="w-3 h-3 mr-1" />
+                          {formatNumber(user.points)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="bg-green-50 text-green-700">
+                          {formatCurrency(user.balance)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">{user.invite_code || "N/A"}</TableCell>
+                      <TableCell>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setLocation(`/users/${user.id}`)}
+                          >
+                            <Eye className="w-4 h-4 mr-1" />
+                            Ver Detalhes
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedUser(user);
+                              setNewPoints(String(user.points || 0));
+                              setNewBalance(String(user.balance || 0));
+                              setShowEditDialog(true);
+                            }}
+                          >
+                            Editar
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          {!isLoading && filteredUsers.length > 0 && (
+            <div className="mt-4 text-sm text-muted-foreground text-center">
+              Mostrando {filteredUsers.length} usuario(s) {searchTerm ? `de ${data?.users?.length || 0} total` : ""}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -266,6 +329,12 @@ export default function Users() {
             <DialogTitle>Editar Usuario</DialogTitle>
             <DialogDescription>
               {selectedUser?.name || "Usuario"} - ID #{selectedUser?.id}
+              {selectedUser?.email && (
+                <div className="mt-1 text-xs">
+                  <Mail className="w-3 h-3 inline mr-1" />
+                  {selectedUser.email}
+                </div>
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">

@@ -868,12 +868,12 @@ async function getRailwayReferrals(limit = 100) {
     return [];
   }
 }
-async function getRailwayRanking(limit = 100) {
+async function getRailwayRanking(limit = 1e4) {
   try {
     const rows = await executeRawQuery(
-      `SELECT id, name, email, points, balance, photo_url, profile_picture 
+      `SELECT id, name, email, points, daily_points, balance, photo_url, profile_picture 
        FROM users 
-       ORDER BY points DESC 
+       ORDER BY daily_points DESC 
        LIMIT ?`,
       [limit]
     );
@@ -881,6 +881,23 @@ async function getRailwayRanking(limit = 100) {
   } catch (error) {
     console.warn("[Railway DB] Error fetching ranking:", error);
     return [];
+  }
+}
+async function updateDailyPoints(userId, points, operation) {
+  try {
+    let query = "";
+    if (operation === "add") {
+      query = `UPDATE users SET daily_points = daily_points + ?, updated_at = NOW() WHERE id = ?`;
+    } else if (operation === "subtract") {
+      query = `UPDATE users SET daily_points = daily_points - ?, updated_at = NOW() WHERE id = ?`;
+    } else {
+      query = `UPDATE users SET daily_points = ?, updated_at = NOW() WHERE id = ?`;
+    }
+    await executeRawQuery(query, [points, userId]);
+    return true;
+  } catch (error) {
+    console.error("[Railway DB] Error updating daily points:", error);
+    return false;
   }
 }
 async function getRailwayDashboardStats() {
@@ -965,8 +982,10 @@ async function getSystemSettings() {
 async function updateSystemSetting(key, value) {
   try {
     await executeRawQuery(
-      `UPDATE system_settings SET setting_value = ?, updated_at = NOW() WHERE setting_key = ?`,
-      [value, key]
+      `INSERT INTO system_settings (setting_key, setting_value, created_at, updated_at) 
+       VALUES (?, ?, NOW(), NOW()) 
+       ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = NOW()`,
+      [key, value]
     );
     return true;
   } catch (error) {
@@ -1349,6 +1368,21 @@ async function deleteAllUsers() {
     return { success: false, count: 0 };
   }
 }
+async function getUserPointsHistory(userId, limit = 100) {
+  try {
+    const rows = await executeRawQuery(
+      `SELECT * FROM points_history 
+       WHERE user_id = ? 
+       ORDER BY created_at DESC 
+       LIMIT ?`,
+      [userId, limit]
+    );
+    return rows;
+  } catch (error) {
+    console.warn("[Railway DB] Error fetching user points history:", error);
+    return [];
+  }
+}
 
 // server/routers.ts
 var adminProcedure2 = publicProcedure;
@@ -1430,6 +1464,13 @@ var appRouter = router({
     })).query(async ({ input }) => {
       const transactions = await getPointTransactions(input.limit);
       return transactions;
+    }),
+    userHistory: adminProcedure2.input(z2.object({
+      userId: z2.number(),
+      limit: z2.number().optional().default(100)
+    })).query(async ({ input }) => {
+      const history = await getUserPointsHistory(input.userId, input.limit);
+      return history;
     })
   }),
   // ============= WITHDRAWALS =============
@@ -1482,10 +1523,19 @@ var appRouter = router({
   // ============= RANKING =============
   ranking: router({
     list: adminProcedure2.input(z2.object({
-      limit: z2.number().optional().default(100)
+      limit: z2.number().optional().default(1e4)
     })).query(async ({ input }) => {
       const ranking = await getRailwayRanking(input.limit);
       return ranking;
+    }),
+    updateDailyPoints: adminProcedure2.input(z2.object({
+      id: z2.number(),
+      points: z2.number(),
+      operation: z2.enum(["add", "subtract", "set"]).optional().default("set")
+    })).mutation(async ({ input }) => {
+      await updateDailyPoints(input.id, input.points, input.operation);
+      await createAdminLog("UPDATE_DAILY_POINTS", `Pontos di\xE1rios do usu\xE1rio ${input.id} atualizados: ${input.operation} ${input.points}`);
+      return { success: true };
     })
   }),
   // ============= SYSTEM SETTINGS =============

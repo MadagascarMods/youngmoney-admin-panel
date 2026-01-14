@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowLeft, Loader2, Coins, Wallet, User, Mail, Phone, Calendar } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ArrowLeft, Loader2, Coins, Wallet, User, Mail, Phone, Calendar, History, TrendingUp, TrendingDown } from "lucide-react";
 import { toast } from "sonner";
 
 export default function UserDetail() {
@@ -23,6 +24,7 @@ export default function UserDetail() {
 
   const { data: user, isLoading, refetch } = trpc.appUsers.getById.useQuery({ id: userId });
   const { data: transactions } = trpc.pointTransactions.list.useQuery({ userId, limit: 50 });
+  const { data: pointsHistory } = trpc.pointTransactions.userHistory.useQuery({ userId, limit: 100 });
 
   const updatePointsMutation = trpc.appUsers.updatePoints.useMutation({
     onSuccess: () => {
@@ -240,47 +242,136 @@ export default function UserDetail() {
         </CardContent>
       </Card>
 
-      {/* Transactions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Histórico de Transações</CardTitle>
-          <CardDescription>Últimas transações de pontos do usuário</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {!transactions || transactions.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              Nenhuma transação encontrada
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Pontos</TableHead>
-                  <TableHead>Descrição</TableHead>
-                  <TableHead>Data</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {transactions.map((tx: any) => (
-                  <TableRow key={tx.id}>
-                    <TableCell className="font-mono">#{tx.id}</TableCell>
-                    <TableCell>
-                      <Badge variant={tx.type === 'credit' ? 'default' : 'destructive'}>
-                        {tx.type === 'credit' ? '+' : '-'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-medium">{formatNumber(tx.points || tx.amount)}</TableCell>
-                    <TableCell>{tx.description || tx.source || "N/A"}</TableCell>
-                    <TableCell>{formatDate(tx.created_at)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      {/* Tabs for Transactions and Points History */}
+      <Tabs defaultValue="history" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="history" className="flex items-center gap-2">
+            <History className="w-4 h-4" />
+            Histórico de Pontos
+          </TabsTrigger>
+          <TabsTrigger value="transactions" className="flex items-center gap-2">
+            <Coins className="w-4 h-4" />
+            Transações
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Points History Tab */}
+        <TabsContent value="history">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <History className="w-5 h-5" />
+                Histórico de Pontos
+              </CardTitle>
+              <CardDescription>Registro detalhado de todas as movimentações de pontos do usuário</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {!pointsHistory || pointsHistory.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  Nenhum histórico de pontos encontrado
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>ID</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead>Pontos</TableHead>
+                        <TableHead>Saldo Anterior</TableHead>
+                        <TableHead>Saldo Após</TableHead>
+                        <TableHead>Fonte</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead>Data</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pointsHistory.map((item: any) => (
+                        <TableRow key={item.id}>
+                          <TableCell className="font-mono">#{item.id}</TableCell>
+                          <TableCell>
+                            <Badge 
+                              variant={item.type === 'credit' || item.type === 'add' || item.points > 0 ? 'default' : 'destructive'}
+                              className="flex items-center gap-1 w-fit"
+                            >
+                              {item.type === 'credit' || item.type === 'add' || item.points > 0 ? (
+                                <TrendingUp className="w-3 h-3" />
+                              ) : (
+                                <TrendingDown className="w-3 h-3" />
+                              )}
+                              {item.type || (item.points > 0 ? 'credit' : 'debit')}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className={`font-bold ${item.type === 'credit' || item.type === 'add' || item.points > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {item.type === 'credit' || item.type === 'add' || item.points > 0 ? '+' : ''}{formatNumber(item.points || item.amount || 0)}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {item.balance_before !== undefined ? formatNumber(item.balance_before) : '-'}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {item.balance_after !== undefined ? formatNumber(item.balance_after) : '-'}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{item.source || item.action || 'N/A'}</Badge>
+                          </TableCell>
+                          <TableCell className="max-w-[200px] truncate" title={item.description || item.reason || '-'}>
+                            {item.description || item.reason || '-'}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">{formatDate(item.created_at)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Transactions Tab */}
+        <TabsContent value="transactions">
+          <Card>
+            <CardHeader>
+              <CardTitle>Histórico de Transações</CardTitle>
+              <CardDescription>Últimas transações de pontos do usuário</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {!transactions || transactions.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  Nenhuma transação encontrada
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Pontos</TableHead>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead>Data</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {transactions.map((tx: any) => (
+                      <TableRow key={tx.id}>
+                        <TableCell className="font-mono">#{tx.id}</TableCell>
+                        <TableCell>
+                          <Badge variant={tx.type === 'credit' ? 'default' : 'destructive'}>
+                            {tx.type === 'credit' ? '+' : '-'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="font-medium">{formatNumber(tx.points || tx.amount)}</TableCell>
+                        <TableCell>{tx.description || tx.source || "N/A"}</TableCell>
+                        <TableCell>{formatDate(tx.created_at)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Edit Points Dialog */}
       <Dialog open={showEditPoints} onOpenChange={setShowEditPoints}>
