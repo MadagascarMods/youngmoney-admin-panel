@@ -861,3 +861,189 @@ export async function getUserPointsHistory(userId: number, limit = 100) {
     return [];
   }
 }
+
+
+// ============= USUÁRIOS ONLINE =============
+
+export async function getOnlineUsersCount(minutesThreshold = 5) {
+  try {
+    const rows = await executeRawQuery(
+      `SELECT COUNT(*) as online_count 
+       FROM users 
+       WHERE updated_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
+      [minutesThreshold]
+    );
+    return rows[0]?.online_count || 0;
+  } catch (error) {
+    console.warn("[Railway DB] Error counting online users:", error);
+    return 0;
+  }
+}
+
+export async function getOnlineUsers(minutesThreshold = 5, limit = 100) {
+  try {
+    const rows = await executeRawQuery(
+      `SELECT id, name, email, username, photo_url, profile_picture, updated_at
+       FROM users 
+       WHERE updated_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)
+       ORDER BY updated_at DESC
+       LIMIT ?`,
+      [minutesThreshold, limit]
+    );
+    return rows;
+  } catch (error) {
+    console.warn("[Railway DB] Error fetching online users:", error);
+    return [];
+  }
+}
+
+export async function getOnlineUsersStats(minutesThreshold = 5) {
+  try {
+    // Usuários online agora
+    const onlineRows = await executeRawQuery(
+      `SELECT COUNT(*) as count 
+       FROM users 
+       WHERE updated_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
+      [minutesThreshold]
+    );
+    
+    // Usuários ativos hoje
+    const todayRows = await executeRawQuery(
+      `SELECT COUNT(*) as count 
+       FROM users 
+       WHERE DATE(updated_at) = CURDATE()`
+    );
+    
+    // Usuários ativos na última hora
+    const hourRows = await executeRawQuery(
+      `SELECT COUNT(*) as count 
+       FROM users 
+       WHERE updated_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)`
+    );
+    
+    return {
+      onlineNow: onlineRows[0]?.count || 0,
+      activeToday: todayRows[0]?.count || 0,
+      activeLastHour: hourRows[0]?.count || 0,
+      thresholdMinutes: minutesThreshold
+    };
+  } catch (error) {
+    console.warn("[Railway DB] Error fetching online users stats:", error);
+    return {
+      onlineNow: 0,
+      activeToday: 0,
+      activeLastHour: 0,
+      thresholdMinutes: minutesThreshold
+    };
+  }
+}
+
+
+// ============= DEVICE BINDINGS (VINCULAÇÃO DE DISPOSITIVOS) =============
+
+export async function getDeviceBindings(limit = 100) {
+  try {
+    const rows = await executeRawQuery(
+      `SELECT db.*, u.name as user_name, u.email as user_email 
+       FROM device_bindings db 
+       LEFT JOIN users u ON db.user_id = u.id 
+       ORDER BY db.created_at DESC LIMIT ?`,
+      [limit]
+    );
+    return rows;
+  } catch (error) {
+    console.warn("[Railway DB] Error fetching device bindings:", error);
+    return [];
+  }
+}
+
+export async function getDeviceBindingsCount() {
+  try {
+    const rows = await executeRawQuery(`SELECT COUNT(*) as count FROM device_bindings WHERE is_active = 1`);
+    return rows[0]?.count || 0;
+  } catch (error) {
+    console.warn("[Railway DB] Error counting device bindings:", error);
+    return 0;
+  }
+}
+
+export async function getDeviceBindingsByEmail(email: string) {
+  try {
+    const rows = await executeRawQuery(
+      `SELECT db.*, u.name as user_name, u.email as user_email 
+       FROM device_bindings db 
+       LEFT JOIN users u ON db.user_id = u.id 
+       WHERE db.email = ? OR u.email = ?
+       ORDER BY db.created_at DESC`,
+      [email, email]
+    );
+    return rows;
+  } catch (error) {
+    console.warn("[Railway DB] Error fetching device bindings by email:", error);
+    return [];
+  }
+}
+
+export async function unbindDeviceByEmail(email: string) {
+  try {
+    // Primeiro buscar o user_id pelo email
+    const users = await executeRawQuery(`SELECT id FROM users WHERE email = ?`, [email]);
+    const userId = users[0]?.id;
+    
+    let affectedRows = 0;
+    
+    // Desativar vinculações pelo email na tabela device_bindings
+    const result1 = await executeRawQuery(
+      `UPDATE device_bindings SET is_active = 0 WHERE email = ?`,
+      [email]
+    );
+    affectedRows += (result1 as any).affectedRows || 0;
+    
+    // Se encontrou o usuário, também desativar pelo user_id
+    if (userId) {
+      const result2 = await executeRawQuery(
+        `UPDATE device_bindings SET is_active = 0 WHERE user_id = ?`,
+        [userId]
+      );
+      affectedRows += (result2 as any).affectedRows || 0;
+    }
+    
+    console.log(`[Railway DB] Unbound devices for email ${email}. Affected: ${affectedRows}`);
+    return { success: true, affectedRows };
+  } catch (error) {
+    console.error("[Railway DB] Error unbinding device by email:", error);
+    return { success: false, affectedRows: 0 };
+  }
+}
+
+export async function unbindAllDevices() {
+  try {
+    const result = await executeRawQuery(`UPDATE device_bindings SET is_active = 0 WHERE is_active = 1`);
+    const affectedRows = (result as any).affectedRows || 0;
+    console.log(`[Railway DB] Unbound all devices. Affected: ${affectedRows}`);
+    return { success: true, affectedRows };
+  } catch (error) {
+    console.error("[Railway DB] Error unbinding all devices:", error);
+    return { success: false, affectedRows: 0 };
+  }
+}
+
+export async function unbindDeviceById(bindingId: number) {
+  try {
+    await executeRawQuery(`UPDATE device_bindings SET is_active = 0 WHERE id = ?`, [bindingId]);
+    return { success: true };
+  } catch (error) {
+    console.error("[Railway DB] Error unbinding device by id:", error);
+    return { success: false };
+  }
+}
+
+export async function reactivateDeviceBinding(bindingId: number) {
+  try {
+    await executeRawQuery(`UPDATE device_bindings SET is_active = 1 WHERE id = ?`, [bindingId]);
+    return { success: true };
+  } catch (error) {
+    console.error("[Railway DB] Error reactivating device binding:", error);
+    return { success: false };
+  }
+}

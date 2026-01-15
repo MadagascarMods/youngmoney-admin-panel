@@ -21,6 +21,7 @@ import Database from "./pages/Database";
 import Monetag from "./pages/Monetag";
 import AllowedInstallers from "./pages/AllowedInstallers";
 import AppUpdate from "./pages/AppUpdate";
+import DeviceBindings from "./pages/DeviceBindings";
 
 function Router() {
   return (
@@ -118,6 +119,12 @@ function Router() {
       <Route path={"/installers"}>
         <DashboardLayout>
           <AllowedInstallers />
+        </DashboardLayout>
+      </Route>
+      
+      <Route path={"/device-bindings"}>
+        <DashboardLayout>
+          <DeviceBindings />
         </DashboardLayout>
       </Route>
       

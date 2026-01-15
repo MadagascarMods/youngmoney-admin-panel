@@ -1383,6 +1383,163 @@ async function getUserPointsHistory(userId, limit = 100) {
     return [];
   }
 }
+async function getOnlineUsersCount(minutesThreshold = 5) {
+  try {
+    const rows = await executeRawQuery(
+      `SELECT COUNT(*) as online_count 
+       FROM users 
+       WHERE updated_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
+      [minutesThreshold]
+    );
+    return rows[0]?.online_count || 0;
+  } catch (error) {
+    console.warn("[Railway DB] Error counting online users:", error);
+    return 0;
+  }
+}
+async function getOnlineUsers(minutesThreshold = 5, limit = 100) {
+  try {
+    const rows = await executeRawQuery(
+      `SELECT id, name, email, username, photo_url, profile_picture, updated_at
+       FROM users 
+       WHERE updated_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)
+       ORDER BY updated_at DESC
+       LIMIT ?`,
+      [minutesThreshold, limit]
+    );
+    return rows;
+  } catch (error) {
+    console.warn("[Railway DB] Error fetching online users:", error);
+    return [];
+  }
+}
+async function getOnlineUsersStats(minutesThreshold = 5) {
+  try {
+    const onlineRows = await executeRawQuery(
+      `SELECT COUNT(*) as count 
+       FROM users 
+       WHERE updated_at >= DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
+      [minutesThreshold]
+    );
+    const todayRows = await executeRawQuery(
+      `SELECT COUNT(*) as count 
+       FROM users 
+       WHERE DATE(updated_at) = CURDATE()`
+    );
+    const hourRows = await executeRawQuery(
+      `SELECT COUNT(*) as count 
+       FROM users 
+       WHERE updated_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)`
+    );
+    return {
+      onlineNow: onlineRows[0]?.count || 0,
+      activeToday: todayRows[0]?.count || 0,
+      activeLastHour: hourRows[0]?.count || 0,
+      thresholdMinutes: minutesThreshold
+    };
+  } catch (error) {
+    console.warn("[Railway DB] Error fetching online users stats:", error);
+    return {
+      onlineNow: 0,
+      activeToday: 0,
+      activeLastHour: 0,
+      thresholdMinutes: minutesThreshold
+    };
+  }
+}
+async function getDeviceBindings(limit = 100) {
+  try {
+    const rows = await executeRawQuery(
+      `SELECT db.*, u.name as user_name, u.email as user_email 
+       FROM device_bindings db 
+       LEFT JOIN users u ON db.user_id = u.id 
+       ORDER BY db.created_at DESC LIMIT ?`,
+      [limit]
+    );
+    return rows;
+  } catch (error) {
+    console.warn("[Railway DB] Error fetching device bindings:", error);
+    return [];
+  }
+}
+async function getDeviceBindingsCount() {
+  try {
+    const rows = await executeRawQuery(`SELECT COUNT(*) as count FROM device_bindings WHERE is_active = 1`);
+    return rows[0]?.count || 0;
+  } catch (error) {
+    console.warn("[Railway DB] Error counting device bindings:", error);
+    return 0;
+  }
+}
+async function getDeviceBindingsByEmail(email) {
+  try {
+    const rows = await executeRawQuery(
+      `SELECT db.*, u.name as user_name, u.email as user_email 
+       FROM device_bindings db 
+       LEFT JOIN users u ON db.user_id = u.id 
+       WHERE db.email = ? OR u.email = ?
+       ORDER BY db.created_at DESC`,
+      [email, email]
+    );
+    return rows;
+  } catch (error) {
+    console.warn("[Railway DB] Error fetching device bindings by email:", error);
+    return [];
+  }
+}
+async function unbindDeviceByEmail(email) {
+  try {
+    const users2 = await executeRawQuery(`SELECT id FROM users WHERE email = ?`, [email]);
+    const userId = users2[0]?.id;
+    let affectedRows = 0;
+    const result1 = await executeRawQuery(
+      `UPDATE device_bindings SET is_active = 0 WHERE email = ?`,
+      [email]
+    );
+    affectedRows += result1.affectedRows || 0;
+    if (userId) {
+      const result2 = await executeRawQuery(
+        `UPDATE device_bindings SET is_active = 0 WHERE user_id = ?`,
+        [userId]
+      );
+      affectedRows += result2.affectedRows || 0;
+    }
+    console.log(`[Railway DB] Unbound devices for email ${email}. Affected: ${affectedRows}`);
+    return { success: true, affectedRows };
+  } catch (error) {
+    console.error("[Railway DB] Error unbinding device by email:", error);
+    return { success: false, affectedRows: 0 };
+  }
+}
+async function unbindAllDevices() {
+  try {
+    const result = await executeRawQuery(`UPDATE device_bindings SET is_active = 0 WHERE is_active = 1`);
+    const affectedRows = result.affectedRows || 0;
+    console.log(`[Railway DB] Unbound all devices. Affected: ${affectedRows}`);
+    return { success: true, affectedRows };
+  } catch (error) {
+    console.error("[Railway DB] Error unbinding all devices:", error);
+    return { success: false, affectedRows: 0 };
+  }
+}
+async function unbindDeviceById(bindingId) {
+  try {
+    await executeRawQuery(`UPDATE device_bindings SET is_active = 0 WHERE id = ?`, [bindingId]);
+    return { success: true };
+  } catch (error) {
+    console.error("[Railway DB] Error unbinding device by id:", error);
+    return { success: false };
+  }
+}
+async function reactivateDeviceBinding(bindingId) {
+  try {
+    await executeRawQuery(`UPDATE device_bindings SET is_active = 1 WHERE id = ?`, [bindingId]);
+    return { success: true };
+  } catch (error) {
+    console.error("[Railway DB] Error reactivating device binding:", error);
+    return { success: false };
+  }
+}
 
 // server/routers.ts
 var adminProcedure2 = publicProcedure;
@@ -1454,6 +1611,28 @@ var appRouter = router({
       const result = await deleteAllUsers();
       await createAdminLog("DELETE_ALL_USERS", `Todos os usu\xE1rios foram exclu\xEDdos. Total: ${result.count}`);
       return { success: true, count: result.count };
+    }),
+    // Endpoint para contar usuários online
+    onlineCount: adminProcedure2.input(z2.object({
+      minutesThreshold: z2.number().optional().default(5)
+    })).query(async ({ input }) => {
+      const count = await getOnlineUsersCount(input.minutesThreshold);
+      return { count, thresholdMinutes: input.minutesThreshold };
+    }),
+    // Endpoint para estatísticas de usuários online
+    onlineStats: adminProcedure2.input(z2.object({
+      minutesThreshold: z2.number().optional().default(5)
+    })).query(async ({ input }) => {
+      const stats = await getOnlineUsersStats(input.minutesThreshold);
+      return stats;
+    }),
+    // Endpoint para listar usuários online
+    onlineList: adminProcedure2.input(z2.object({
+      minutesThreshold: z2.number().optional().default(5),
+      limit: z2.number().optional().default(100)
+    })).query(async ({ input }) => {
+      const users2 = await getOnlineUsers(input.minutesThreshold, input.limit);
+      return users2;
     })
   }),
   // ============= POINT TRANSACTIONS =============
@@ -1746,6 +1925,41 @@ var appRouter = router({
     })).mutation(async ({ input }) => {
       const result = await executeRawQuery(input.sql, input.params);
       await createAdminLog("EXECUTE_SQL", `SQL executado: ${input.sql.substring(0, 100)}`);
+      return result;
+    })
+  }),
+  // ============= DEVICE BINDINGS (VINCULAÇÃO DE DISPOSITIVOS) =============
+  deviceBindings: router({
+    list: adminProcedure2.input(z2.object({ limit: z2.number().optional().default(100) })).query(async ({ input }) => {
+      const bindings = await getDeviceBindings(input.limit);
+      const count = await getDeviceBindingsCount();
+      return { bindings, totalActive: count };
+    }),
+    getByEmail: adminProcedure2.input(z2.object({ email: z2.string() })).query(async ({ input }) => {
+      const bindings = await getDeviceBindingsByEmail(input.email);
+      return bindings;
+    }),
+    unbindByEmail: adminProcedure2.input(z2.object({ email: z2.string() })).mutation(async ({ input }) => {
+      const result = await unbindDeviceByEmail(input.email);
+      await createAdminLog("UNBIND_DEVICE_EMAIL", `Dispositivos desvinculados para email: ${input.email}. Afetados: ${result.affectedRows}`);
+      return result;
+    }),
+    unbindAll: adminProcedure2.input(z2.object({ confirmText: z2.string() })).mutation(async ({ input }) => {
+      if (input.confirmText !== "DESVINCULAR TODOS") {
+        throw new TRPCError3({ code: "BAD_REQUEST", message: "Texto de confirma\xE7\xE3o incorreto" });
+      }
+      const result = await unbindAllDevices();
+      await createAdminLog("UNBIND_ALL_DEVICES", `Todos os dispositivos foram desvinculados. Afetados: ${result.affectedRows}`);
+      return result;
+    }),
+    unbindById: adminProcedure2.input(z2.object({ id: z2.number() })).mutation(async ({ input }) => {
+      const result = await unbindDeviceById(input.id);
+      await createAdminLog("UNBIND_DEVICE", `Dispositivo ${input.id} desvinculado`);
+      return result;
+    }),
+    reactivate: adminProcedure2.input(z2.object({ id: z2.number() })).mutation(async ({ input }) => {
+      const result = await reactivateDeviceBinding(input.id);
+      await createAdminLog("REACTIVATE_DEVICE", `Dispositivo ${input.id} reativado`);
       return result;
     })
   })

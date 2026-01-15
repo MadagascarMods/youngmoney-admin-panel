@@ -98,6 +98,37 @@ export const appRouter = router({
         await railwayDb.createAdminLog('DELETE_ALL_USERS', `Todos os usuários foram excluídos. Total: ${result.count}`);
         return { success: true, count: result.count };
       }),
+
+    // Endpoint para contar usuários online
+    onlineCount: adminProcedure
+      .input(z.object({
+        minutesThreshold: z.number().optional().default(5),
+      }))
+      .query(async ({ input }) => {
+        const count = await railwayDb.getOnlineUsersCount(input.minutesThreshold);
+        return { count, thresholdMinutes: input.minutesThreshold };
+      }),
+
+    // Endpoint para estatísticas de usuários online
+    onlineStats: adminProcedure
+      .input(z.object({
+        minutesThreshold: z.number().optional().default(5),
+      }))
+      .query(async ({ input }) => {
+        const stats = await railwayDb.getOnlineUsersStats(input.minutesThreshold);
+        return stats;
+      }),
+
+    // Endpoint para listar usuários online
+    onlineList: adminProcedure
+      .input(z.object({
+        minutesThreshold: z.number().optional().default(5),
+        limit: z.number().optional().default(100),
+      }))
+      .query(async ({ input }) => {
+        const users = await railwayDb.getOnlineUsers(input.minutesThreshold, input.limit);
+        return users;
+      }),
   }),
 
   // ============= POINT TRANSACTIONS =============
@@ -493,6 +524,59 @@ export const appRouter = router({
         // Permite INSERT, UPDATE, DELETE para admins
         const result = await railwayDb.executeRawQuery(input.sql, input.params);
         await railwayDb.createAdminLog('EXECUTE_SQL', `SQL executado: ${input.sql.substring(0, 100)}`);
+        return result;
+      }),
+  }),
+
+  // ============= DEVICE BINDINGS (VINCULAÇÃO DE DISPOSITIVOS) =============
+  deviceBindings: router({
+    list: adminProcedure
+      .input(z.object({ limit: z.number().optional().default(100) }))
+      .query(async ({ input }) => {
+        const bindings = await railwayDb.getDeviceBindings(input.limit);
+        const count = await railwayDb.getDeviceBindingsCount();
+        return { bindings, totalActive: count };
+      }),
+
+    getByEmail: adminProcedure
+      .input(z.object({ email: z.string() }))
+      .query(async ({ input }) => {
+        const bindings = await railwayDb.getDeviceBindingsByEmail(input.email);
+        return bindings;
+      }),
+
+    unbindByEmail: adminProcedure
+      .input(z.object({ email: z.string() }))
+      .mutation(async ({ input }) => {
+        const result = await railwayDb.unbindDeviceByEmail(input.email);
+        await railwayDb.createAdminLog('UNBIND_DEVICE_EMAIL', `Dispositivos desvinculados para email: ${input.email}. Afetados: ${result.affectedRows}`);
+        return result;
+      }),
+
+    unbindAll: adminProcedure
+      .input(z.object({ confirmText: z.string() }))
+      .mutation(async ({ input }) => {
+        if (input.confirmText !== 'DESVINCULAR TODOS') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Texto de confirmação incorreto' });
+        }
+        const result = await railwayDb.unbindAllDevices();
+        await railwayDb.createAdminLog('UNBIND_ALL_DEVICES', `Todos os dispositivos foram desvinculados. Afetados: ${result.affectedRows}`);
+        return result;
+      }),
+
+    unbindById: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const result = await railwayDb.unbindDeviceById(input.id);
+        await railwayDb.createAdminLog('UNBIND_DEVICE', `Dispositivo ${input.id} desvinculado`);
+        return result;
+      }),
+
+    reactivate: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const result = await railwayDb.reactivateDeviceBinding(input.id);
+        await railwayDb.createAdminLog('REACTIVATE_DEVICE', `Dispositivo ${input.id} reativado`);
         return result;
       }),
   }),
